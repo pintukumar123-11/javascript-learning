@@ -1,0 +1,11 @@
+# Common JS ignores
+node_modules/
+.DS_Store
+*.log
+.env
+dist/
+
+# PHP ignores
+vendor/
+.htaccess
+proxy.php (if sensitive)
