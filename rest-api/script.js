@@ -1,16 +1,23 @@
-// Fallback to public proxies for now since PHP is not setup
-const targetURL = "https://stg-huntswood-staging.kinsta.cloud/wp-json/wp/v2/white-papers/?_embed";
+/**
+ * FINAL UPDATED SCRIPT
+ * Focus: Image reliability and proxy efficiency
+ */
+
+// We request specific fields to keep the data size small for proxies
+const targetURL = "https://stg-huntswood-staging.kinsta.cloud/wp-json/wp/v2/white-papers/?_fields=id,title,content,jetpack_featured_media_url";
 
 const grid = document.getElementById('whitepaper-grid');
 const modal = document.getElementById('modal');
 const modalBody = document.getElementById('modal-body');
 const closeBtn = document.querySelector('.close-button');
 
-// STEP 1: Fetch the Data with Public Proxy Fallback
 async function fetchWhitepapers() {
+    // Show loading state
+    grid.innerHTML = '<div class="loader-container"><div class="loader"></div><p>Loading Content...</p></div>';
+
     const proxies = [
-        url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-        url => `https://corsproxy.io/?${encodeURIComponent(url)}`
+        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`
     ];
 
     let lastError = null;
@@ -18,87 +25,68 @@ async function fetchWhitepapers() {
     for (const proxy of proxies) {
         try {
             const currentApiURL = proxy(targetURL);
-            console.log("Attempting fetch with public proxy:", currentApiURL);
+            console.log("Attempting fetch with:", currentApiURL);
 
             const response = await fetch(currentApiURL);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const dataRaw = await response.json();
 
-            // Handle different proxy response formats
-            let posts;
-            if (dataRaw.contents) {
-                // allOrigins format
-                posts = JSON.parse(dataRaw.contents);
-            } else {
-                // corsproxy.io directly returns the array
-                posts = dataRaw;
+            // Normalize data from different proxies
+            let posts = dataRaw.contents ? JSON.parse(dataRaw.contents) : dataRaw;
+
+            if (Array.isArray(posts)) {
+                console.log("Success! Data received.");
+                renderTiles(posts);
+                return;
             }
-
-            console.log("Successfully fetched data via public proxy.");
-            renderTiles(posts);
-            return;
-
         } catch (error) {
-            console.warn("Public proxy attempt failed, trying next...", error);
+            console.warn("Proxy attempt failed, moving to next...", error);
             lastError = error;
         }
     }
-
-    console.error("All fetch attempts failed.");
-    grid.innerHTML = `
-        <div style="color: #666; padding: 40px; text-align: center; background: #fff1f1; border-radius: 12px; border: 1px solid #ffa3a3; max-width: 600px; margin: 0 auto;">
-            <h3>⚠️ Connection Blocked</h3>
-            <p>We couldn't reach the data. This usually happens if a browser extension or firewall is blocking the proxy.</p>
-            <div style="text-align: left; background: #eee; padding: 10px; border-radius: 5px; margin: 15px 0;">
-                <code style="font-size: 0.8em;">Error: ${lastError.message}</code>
-            </div>
-            <p><strong>Quick Fix:</strong> Try opening this in an <b>Incognito/Private Window</b> to bypass extension issues.</p>
-            <button onclick="location.reload()" style="padding: 10px 20px; cursor: pointer; border-radius: 5px; border: none; background: #333; color: white;">Try Again</button>
-        </div>
-    `;
+    renderErrorState(lastError);
 }
 
-// STEP 2: Render Tiles
 function renderTiles(posts) {
-    if (!posts || !Array.isArray(posts)) {
-        throw new Error("Invalid data format received");
-    }
+    grid.innerHTML = "";
 
-    grid.innerHTML = ""; // Clear existing content
     posts.forEach(post => {
         const tile = document.createElement('div');
         tile.className = 'tile';
 
-        // Extract image from the embedded data
-        let imageUrl = 'https://images.unsplash.com/photo-1544377193-33dcf4d68fb5?q=80&w=2832&auto=format&fit=crop';
-        if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
-            imageUrl = post._embedded['wp:featuredmedia'][0].source_url;
+        // IMAGE LOGIC: 
+        // 1. Try Jetpack URL
+        // 2. Fallback to a high-quality placeholder if the API has no image set
+        let imageUrl = post.jetpack_featured_media_url;
+        const fallbackImage = `https://placehold.co/600x400/2c3e50/ffffff?text=Whitepaper`;
+
+        if (!imageUrl || imageUrl.trim() === "") {
+            imageUrl = fallbackImage;
         }
 
         tile.innerHTML = `
             <div class="tile-image-wrapper">
-                <img src="${imageUrl}" alt="${post.title.rendered}" onerror="this.src='https://via.placeholder.com/300x200?text=No+Image'">
+                <img src="${imageUrl}" 
+                     alt="${post.title.rendered}" 
+                     loading="lazy"
+                     onerror="this.onerror=null;this.src='${fallbackImage}';">
             </div>
             <div class="tile-details">
                 <h3>${post.title.rendered}</h3>
-                <p>Click to read whitepaper</p>
+                <p class="tile-cta">Click to read whitepaper</p>
             </div>
         `;
 
-        tile.addEventListener('click', () => {
-            openModal(post, imageUrl);
-        });
-
+        tile.addEventListener('click', () => openModal(post, imageUrl));
         grid.appendChild(tile);
     });
 }
 
-// STEP 3: Open Modal Logic
 function openModal(post, imageUrl) {
     modalBody.innerHTML = `
         <div class="modal-header">
-            <img src="${imageUrl}" class="modal-hero-image">
+            <img src="${imageUrl}" class="modal-hero-image" onerror="this.src='https://placehold.co/600x400?text=No+Image';">
             <h2>${post.title.rendered}</h2>
         </div>
         <div class="modal-text-content">
@@ -106,17 +94,26 @@ function openModal(post, imageUrl) {
         </div>
     `;
     modal.style.display = "block";
-    document.body.style.overflow = "hidden"; // Prevent background scroll
+    document.body.style.overflow = "hidden"; // Stop background scroll
 }
 
-// Close Modal logic
 function closeModal() {
     modal.style.display = "none";
     document.body.style.overflow = "auto";
 }
 
+// Close listeners
 closeBtn.onclick = closeModal;
-window.onclick = (event) => { if (event.target == modal) closeModal(); };
+window.onclick = (e) => { if (e.target == modal) closeModal(); };
 
-// Start the app
+function renderErrorState(err) {
+    grid.innerHTML = `
+        <div class="error-box">
+            <h3>⚠️ Connection Issue</h3>
+            <p>${err ? err.message : 'The API could not be reached.'}</p>
+            <button onclick="location.reload()" class="retry-btn">Try Again</button>
+        </div>`;
+}
+
+// Run the application
 fetchWhitepapers();
